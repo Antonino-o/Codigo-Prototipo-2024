@@ -28,11 +28,6 @@ const int servoPin = D3;  // Pin donde está conectado el servo motor
 // Crear un objeto para el servo
 Servo myServo;
 
-// Estados iniciales de los LEDs
-bool state_yellow = LOW;
-bool state_green = LOW;
-bool state_red = LOW;
-
 // Configuración Wi-Fi
 void setup_wifi() {
   Serial.begin(115200);
@@ -100,60 +95,51 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
 void controlLED(String message) {
   // Comando para encender la luz amarilla
-  if (message == "Encender luz amarilla") {
-    state_yellow = true;
+  if (message == "mitad") {
     digitalWrite(yellowLED, HIGH); // Enciende el LED amarillo
-    client.publish("led/status", "LED Amarillo encendido");
-  }
-  // Comando para apagar la luz amarilla
-  else if (message == "Apagar luz amarilla") {
-    state_yellow = false;
-    digitalWrite(yellowLED, LOW); // Apaga el LED amarillo
-    client.publish("led/status", "LED Amarillo apagado");
+    client.publish("led/status", "Cortinas abiertas hasta la mitad");
   }
   
   // Comando para encender la luz verde
   else if (message == "Encender luz verde") {
-    state_green = true;
     digitalWrite(greenLED, HIGH);
-    client.publish("led/status", "LED Verde encendido");
-  }
-  // Comando para apagar la luz verde
-  else if (message == "Apagar luz verde") {
-    state_green = false;
-    digitalWrite(greenLED, LOW);
-    client.publish("led/status", "LED Verde apagado");
+    client.publish("led/status", "Cortinas completamente abiertas");
   }
   
   // Comando para encender la luz roja
-  else if (message == "Encender luz roja") {
-    state_red = true;
+  else if (message == "cerrar") {
     digitalWrite(redLED, HIGH);
-    client.publish("led/status", "LED Rojo encendido");
-  }
-  // Comando para apagar la luz roja
-  else if (message == "Apagar luz roja") {
-    state_red = false;
-    digitalWrite(redLED, LOW);
-    client.publish("led/status", "LED Rojo apagado");
+    client.publish("led/status", "Cortinas completamente cerradas");
   }
 }
 
 void controlServo(String message) {
   // Comando para mover el servo a la posición completa
-  if (message == "Abrir servo") {
+  if (message == "abrir") {
     myServo.write(180);  // Posición completa (180 grados)
-    client.publish("servo/status", "Servo abierto");
+    digitalWrite(greenLED, HIGH);  // Enciende la luz verde
+    digitalWrite(redLED, LOW);     // Apaga la luz roja si está encendida
+    digitalWrite(yellowLED, LOW);  // Apaga la luz amarilla si está encendida
+    client.publish("servo/status", "Cortinas abiertas por completo");
+    client.publish("led/status", "Cortinas completamente abiertas");
   }
   // Comando para mover el servo a la posición media
-  else if (message == "Posición media servo") {
+  else if (message == "mitad") {
     myServo.write(90);  // Posición media (90 grados)
-    client.publish("servo/status", "Servo en posición media");
+    digitalWrite(yellowLED, HIGH);  // Enciende la luz amarilla
+    digitalWrite(greenLED, LOW);    // Apaga la luz verde si está encendida
+    digitalWrite(redLED, LOW);      // Apaga la luz roja si está encendida
+    client.publish("servo/status", "Cortinas a la posición de mitad");
+    client.publish("led/status", "Cortinas abiertas hasta la mitad");
   }
   // Comando para mover el servo a la posición cerrada
-  else if (message == "Cerrar servo") {
+  else if (message == "cerrar") {
     myServo.write(0);  // Posición cerrada (0 grados)
-    client.publish("servo/status", "Servo cerrado");
+    digitalWrite(redLED, HIGH);  // Enciende la luz roja
+    digitalWrite(greenLED, LOW); // Apaga la luz verde si está encendida
+    digitalWrite(yellowLED, LOW); // Apaga la luz amarilla si está encendida
+    client.publish("servo/status", "Cortinas Cerradas");
+    client.publish("led/status", "Cortinas cerradas por completo");
   }
 }
 
@@ -194,21 +180,40 @@ void loop() {
   // Verificar si hay datos disponibles desde Bluetooth
   if (BTSerial.available()) {
     String command = BTSerial.readStringUntil('\n');
-    command.trim();
-    controlLED(command);
+    command.trim();  // Eliminar espacios extra o saltos de línea
+
+    Serial.println("Comando recibido desde Bluetooth: " + command);  // Para depurar
+
+    // Controlar LEDs y el servo a través de los comandos Bluetooth
+    if (command == "abrir") {
+      controlServo("abrir");
+    } else if (command == "mitad") {
+      controlServo("mitad");
+    } else if (command == "cerrar") {
+      controlServo("cerrar");
+    } else if (command == "Encender luz amarilla") {
+      controlLED("mitad");
+    } else if (command == "Encender luz verde") {
+      controlLED("Encender luz verde");
+    } else if (command == "Encender luz roja") {
+      controlLED("cerrar");
+    } else {
+      Serial.println("Comando no válido recibido desde Bluetooth: " + command);
+    }
   }
 
   // Verificar si hay datos disponibles desde el puerto serial
   if (Serial.available()) {
     String message = Serial.readStringUntil('\n');
+    message.trim();  // Eliminar espacios extra o saltos de línea
+
+    // Solo procesar mensajes de tipo "MQTT:" (esto depende de tu uso)
     if (message.startsWith("MQTT:")) {
       String payload = message.substring(5);
       client.publish("arduino/command", payload.c_str());
       Serial.println("Mensaje MQTT enviado: " + payload);
+    } else {
+      Serial.println("Comando no válido recibido desde Serial: " + message);
     }
   }
 }
-
-  }
-}
-
