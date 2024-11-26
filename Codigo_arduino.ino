@@ -28,6 +28,12 @@ const int servoPin = D3;  // Pin donde está conectado el servo motor
 // Crear un objeto para el servo
 Servo myServo;
 
+// Variables para el temporizador de los LEDs
+unsigned long yellowLEDTimer = 0;
+unsigned long greenLEDTimer = 0;
+unsigned long redLEDTimer = 0;
+const unsigned long LED_DURATION = 20000; // 1 minuto en milisegundos
+
 // Configuración Wi-Fi
 void setup_wifi() {
   Serial.begin(115200);
@@ -93,22 +99,48 @@ void callback(char* topic, byte* payload, unsigned int length) {
   }
 }
 
+// Función para manejar el apagado automático de los LEDs
+void checkLEDTimers() {
+  unsigned long currentTime = millis();
+
+  // Verificar y apagar LED amarillo
+  if (digitalRead(yellowLED) == HIGH && (currentTime - yellowLEDTimer >= LED_DURATION)) {
+    digitalWrite(yellowLED, LOW);
+    client.publish("led/status", "LED amarillo apagado automáticamente");
+  }
+
+  // Verificar y apagar LED verde
+  if (digitalRead(greenLED) == HIGH && (currentTime - greenLEDTimer >= LED_DURATION)) {
+    digitalWrite(greenLED, LOW);
+    client.publish("led/status", "LED verde apagado automáticamente");
+  }
+
+  // Verificar y apagar LED rojo
+  if (digitalRead(redLED) == HIGH && (currentTime - redLEDTimer >= LED_DURATION)) {
+    digitalWrite(redLED, LOW);
+    client.publish("led/status", "LED rojo apagado automáticamente");
+  }
+}
+
 void controlLED(String message) {
   // Comando para encender la luz amarilla
   if (message == "mitad") {
     digitalWrite(yellowLED, HIGH); // Enciende el LED amarillo
+    yellowLEDTimer = millis(); // Iniciar temporizador
     client.publish("led/status", "Cortinas abiertas hasta la mitad");
   }
   
   // Comando para encender la luz verde
   else if (message == "Encender luz verde") {
     digitalWrite(greenLED, HIGH);
+    greenLEDTimer = millis(); // Iniciar temporizador
     client.publish("led/status", "Cortinas completamente abiertas");
   }
   
   // Comando para encender la luz roja
   else if (message == "cerrar") {
     digitalWrite(redLED, HIGH);
+    redLEDTimer = millis(); // Iniciar temporizador
     client.publish("led/status", "Cortinas completamente cerradas");
   }
 }
@@ -118,27 +150,30 @@ void controlServo(String message) {
   if (message == "abrir") {
     myServo.write(180);  // Posición completa (180 grados)
     digitalWrite(greenLED, HIGH);  // Enciende la luz verde
+    greenLEDTimer = millis(); // Iniciar temporizador
     digitalWrite(redLED, LOW);     // Apaga la luz roja si está encendida
     digitalWrite(yellowLED, LOW);  // Apaga la luz amarilla si está encendida
-    client.publish("servo/status", "Cortinas abiertas por completo");
+    client.publish("servo/status", "Cortinas abiertas por completo 180°");
     client.publish("led/status", "Cortinas completamente abiertas");
   }
   // Comando para mover el servo a la posición media
   else if (message == "mitad") {
     myServo.write(90);  // Posición media (90 grados)
     digitalWrite(yellowLED, HIGH);  // Enciende la luz amarilla
+    yellowLEDTimer = millis(); // Iniciar temporizador
     digitalWrite(greenLED, LOW);    // Apaga la luz verde si está encendida
     digitalWrite(redLED, LOW);      // Apaga la luz roja si está encendida
-    client.publish("servo/status", "Cortinas a la posición de mitad");
+    client.publish("servo/status", "Cortinas abiertas hasta la mitad 90°");
     client.publish("led/status", "Cortinas abiertas hasta la mitad");
   }
   // Comando para mover el servo a la posición cerrada
   else if (message == "cerrar") {
     myServo.write(0);  // Posición cerrada (0 grados)
     digitalWrite(redLED, HIGH);  // Enciende la luz roja
+    redLEDTimer = millis(); // Iniciar temporizador
     digitalWrite(greenLED, LOW); // Apaga la luz verde si está encendida
     digitalWrite(yellowLED, LOW); // Apaga la luz amarilla si está encendida
-    client.publish("servo/status", "Cortinas Cerradas");
+    client.publish("servo/status", "Cortinas cerradas 0°");
     client.publish("led/status", "Cortinas cerradas por completo");
   }
 }
@@ -155,7 +190,7 @@ void setup() {
   digitalWrite(redLED, LOW);
 
   // Configurar el servo motor
-  myServo.attach(servoPin);  // Conectar el servo al pin definido
+  myServo.attach(servoPin);  // Conectar el servo Conexion del servomotor al pin definido
 
   // Iniciar comunicación serial con el módulo Bluetooth
   BTSerial.begin(9600);
@@ -163,19 +198,22 @@ void setup() {
   // Configurar la conexión Wi-Fi
   setup_wifi();
 
-  // Configurar el cliente MQTT
+  // MQTT Configuracion Cliente MQTT
   client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
 }
 
 void loop() {
-  // Si no estamos conectados al servidor MQTT, intentar reconectar
+  //  Reconectar en caso de no lograr conexion
   if (!client.connected()) {
     reconnect();
   }
 
   // Mantener la conexión con el servidor MQTT
   client.loop();
+
+  // Verificar y apagar LEDs automáticamente
+  checkLEDTimers();
 
   // Verificar si hay datos disponibles desde Bluetooth
   if (BTSerial.available()) {
@@ -184,7 +222,7 @@ void loop() {
 
     Serial.println("Comando recibido desde Bluetooth: " + command);  // Para depurar
 
-    // Controlar LEDs y el servo a través de los comandos Bluetooth
+    // Controlar LEDs y el servomotor a través de los comandos Bluetooth
     if (command == "abrir") {
       controlServo("abrir");
     } else if (command == "mitad") {
@@ -207,7 +245,7 @@ void loop() {
     String message = Serial.readStringUntil('\n');
     message.trim();  // Eliminar espacios extra o saltos de línea
 
-    // Solo procesar mensajes de tipo "MQTT:" (esto depende de tu uso)
+    // Solo procesar mensajes de tipo "MQTT"
     if (message.startsWith("MQTT:")) {
       String payload = message.substring(5);
       client.publish("arduino/command", payload.c_str());
