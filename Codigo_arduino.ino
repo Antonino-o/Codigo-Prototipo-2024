@@ -1,45 +1,50 @@
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 #include <SoftwareSerial.h>
-#include <Servo.h>  // Incluir la librería para el servo motor
+#include <Servo.h>  
+#include <ThingSpeak.h> 
 
-// Definir los parámetros de la red Wi-Fi
+// Parámetros de la red Wi-Fi
 const char* ssid = "Red_prototipo";
 const char* password = "passwd-arduino";
 
-// Definir los parámetros del servidor MQTT
+// Parámetros del servidor MQTT
 const char* mqtt_server = "broker.emqx.io";
 
-// Crear un objeto Wi-Fi y MQTT
+// Credenciales de ThingSpeak
+const char* thingSpeakAPIKey = "UCKTB8JZWUR470WJ"; // Clave API TS
+unsigned long myChannelNumber = 2766295;      // ID CANAL TS
+WiFiClient  clientThingSpeak; 
+
+//  Wi-Fi y MQTT
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-// Configurar SoftwareSerial para el módulo Bluetooth
+// Configuracion Modulo BT
 SoftwareSerial BTSerial(D1, D2); // RX, TX
 
-// Definir los pines para los LEDs
-const int yellowLED = D5;  // GPIO14 (D5 en la placa)
+// Pines conectados a ESP8266
+const int yellowLED = D5;  // AA (D5 en la placa)
 const int greenLED = D6;    // GPIO12 (D6 en la placa)
 const int redLED = D7;     // GPIO13 (D7 en la placa)
 
-// Definir el pin para el servo motor
+// Pin para el servoMotor
 const int servoPin = D3;  // Pin donde está conectado el servo motor
 
-// Crear un objeto para el servo
 Servo myServo;
 
-// Variables para el temporizador de los LEDs
+// Variables para el apagado de los leds
 unsigned long yellowLEDTimer = 0;
 unsigned long greenLEDTimer = 0;
 unsigned long redLEDTimer = 0;
-const unsigned long LED_DURATION = 20000; // 1 minuto en milisegundos
+const unsigned long LED_DURATION = 20000; // 20 segundos para que se apague el LED
 
 // Configuración Wi-Fi
 void setup_wifi() {
   Serial.begin(115200);
   delay(10);
 
-  // Conectar a la red Wi-Fi
+  // Conexion a la red Wi-Fi
   Serial.println();
   Serial.print("Conectando a WiFi...");
   WiFi.begin(ssid, password);
@@ -59,7 +64,6 @@ void reconnect() {
   while (!client.connected()) {
     Serial.print("Intentando conexión MQTT...");
     
-    // Crear un ID de cliente aleatorio
     String clientId = "ESP8266Client-";
     clientId += String(random(0xffff), HEX);
 
@@ -68,7 +72,7 @@ void reconnect() {
 
       // Suscribirse al tópico "led/control"
       client.subscribe("led/control");
-      client.subscribe("servo/control");  // Suscribirse también al tópico para el servo
+      client.subscribe("servo/control");  // Suscribirse al topico "servo/control"
     } else {
       Serial.print("Fallo, rc=");
       Serial.print(client.state());
@@ -84,7 +88,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print(" -> ");
   String message = "";
 
-  // Convertir el payload a un String
+
   for (int i = 0; i < length; i++) {
     message += (char)payload[i];
   }
@@ -106,19 +110,16 @@ void checkLEDTimers() {
   // Verificar y apagar LED amarillo
   if (digitalRead(yellowLED) == HIGH && (currentTime - yellowLEDTimer >= LED_DURATION)) {
     digitalWrite(yellowLED, LOW);
-    client.publish("led/status", "LED amarillo apagado automáticamente");
   }
 
   // Verificar y apagar LED verde
   if (digitalRead(greenLED) == HIGH && (currentTime - greenLEDTimer >= LED_DURATION)) {
     digitalWrite(greenLED, LOW);
-    client.publish("led/status", "LED verde apagado automáticamente");
   }
 
   // Verificar y apagar LED rojo
   if (digitalRead(redLED) == HIGH && (currentTime - redLEDTimer >= LED_DURATION)) {
     digitalWrite(redLED, LOW);
-    client.publish("led/status", "LED rojo apagado automáticamente");
   }
 }
 
@@ -158,9 +159,9 @@ void controlServo(String message) {
   }
   // Comando para mover el servo a la posición media
   else if (message == "mitad") {
-    myServo.write(90);  // Posición media (90 grados)
-    digitalWrite(yellowLED, HIGH);  // Enciende la luz amarilla
-    yellowLEDTimer = millis(); // Iniciar temporizador
+    myServo.write(90);  // Posición a la mitad (90 grados)
+    digitalWrite(yellowLED, HIGH);  
+    yellowLEDTimer = millis(); 
     digitalWrite(greenLED, LOW);    // Apaga la luz verde si está encendida
     digitalWrite(redLED, LOW);      // Apaga la luz roja si está encendida
     client.publish("servo/status", "Cortinas abiertas hasta la mitad 90°");
@@ -169,8 +170,8 @@ void controlServo(String message) {
   // Comando para mover el servo a la posición cerrada
   else if (message == "cerrar") {
     myServo.write(0);  // Posición cerrada (0 grados)
-    digitalWrite(redLED, HIGH);  // Enciende la luz roja
-    redLEDTimer = millis(); // Iniciar temporizador
+    digitalWrite(redLED, HIGH);  
+    redLEDTimer = millis(); 
     digitalWrite(greenLED, LOW); // Apaga la luz verde si está encendida
     digitalWrite(yellowLED, LOW); // Apaga la luz amarilla si está encendida
     client.publish("servo/status", "Cortinas cerradas 0°");
@@ -178,8 +179,24 @@ void controlServo(String message) {
   }
 }
 
+void sendDataToThingSpeak() {
+  // Envía el estado de los LEDs y el servo a ThingSpeak
+  ThingSpeak.setField(1, digitalRead(yellowLED));  // Estado del LED amarillo
+  ThingSpeak.setField(2, digitalRead(greenLED));   // Estado del LED verde
+  ThingSpeak.setField(3, digitalRead(redLED));     // Estado del LED rojo
+  ThingSpeak.setField(4, myServo.read());          // Posición del servo
+
+  // Enviar los datos al canal de ThingSpeak
+  int x = ThingSpeak.writeFields(myChannelNumber, thingSpeakAPIKey);
+  if (x == 200) {
+    Serial.println("Datos enviados a ThingSpeak correctamente.");
+  } else {
+    Serial.println("Error al enviar datos a ThingSpeak. Código de error: " + String(x));
+  }
+}
+
 void setup() {
-  // Configurar los pines de los LEDs como salidas
+
   pinMode(yellowLED, OUTPUT);
   pinMode(greenLED, OUTPUT);
   pinMode(redLED, OUTPUT);
@@ -190,7 +207,7 @@ void setup() {
   digitalWrite(redLED, LOW);
 
   // Configurar el servo motor
-  myServo.attach(servoPin);  // Conectar el servo Conexion del servomotor al pin definido
+  myServo.attach(servoPin); 
 
   // Iniciar comunicación serial con el módulo Bluetooth
   BTSerial.begin(9600);
@@ -201,28 +218,32 @@ void setup() {
   // MQTT Configuracion Cliente MQTT
   client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
+
+  // Iniciar ThingSpeak
+  ThingSpeak.begin(clientThingSpeak);
 }
 
 void loop() {
-  //  Reconectar en caso de no lograr conexion
   if (!client.connected()) {
     reconnect();
   }
 
-  // Mantener la conexión con el servidor MQTT
   client.loop();
 
-  // Verificar y apagar LEDs automáticamente
-  checkLEDTimers();
+  checkLEDTimers();  // Controla el temporizador de los LEDs
 
-  // Verificar si hay datos disponibles desde Bluetooth
+  // Enviar datos a ThingSpeak cada 10 segundos
+  static unsigned long lastSendTime = 0;
+  if (millis() - lastSendTime > 10000) {
+    lastSendTime = millis();
+    sendDataToThingSpeak();  // Envía datos a ThingSpeak
+  }
+
+  // Controlar LEDs y servo desde Bluetooth
   if (BTSerial.available()) {
     String command = BTSerial.readStringUntil('\n');
-    command.trim();  // Eliminar espacios extra o saltos de línea
+    command.trim(); 
 
-    Serial.println("Comando recibido desde Bluetooth: " + command);  // Para depurar
-
-    // Controlar LEDs y el servomotor a través de los comandos Bluetooth
     if (command == "abrir") {
       controlServo("abrir");
     } else if (command == "mitad") {
@@ -240,12 +261,11 @@ void loop() {
     }
   }
 
-  // Verificar si hay datos disponibles desde el puerto serial
+
   if (Serial.available()) {
     String message = Serial.readStringUntil('\n');
-    message.trim();  // Eliminar espacios extra o saltos de línea
+    message.trim();  
 
-    // Solo procesar mensajes de tipo "MQTT"
     if (message.startsWith("MQTT:")) {
       String payload = message.substring(5);
       client.publish("arduino/command", payload.c_str());
